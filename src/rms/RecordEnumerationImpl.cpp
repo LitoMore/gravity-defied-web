@@ -54,7 +54,9 @@ int RecordEnumerationImpl::nextRecordId()
 
 void RecordEnumerationImpl::destroy()
 {
-    data.clear();
+    // RecordStore owns this object and its data. Ending enumeration must not
+    // delete the records that subsequent setRecord() calls update.
+    reset();
 }
 
 void RecordEnumerationImpl::serialize(FileStream* outStream)

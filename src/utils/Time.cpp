@@ -1,7 +1,10 @@
-#include "time.h"
+#include "Time.h"
 
 #include <SDL2/SDL.h>
 #include <chrono>
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#endif
 
 namespace Time {
 int64_t currentTimeMillis()
@@ -12,6 +15,10 @@ int64_t currentTimeMillis()
 
 void sleep(int64_t ms)
 {
+#ifdef __EMSCRIPTEN__
+    emscripten_sleep(ms);
+#else
     SDL_Delay(ms);
+#endif
 }
 }

@@ -589,6 +589,10 @@ void GameCanvas::keyPressed(int var1)
 {
     if (Micro::isInGameMenu && menuManager != nullptr) {
         menuManager->processKeyCode(var1);
+#ifdef __EMSCRIPTEN__
+        // A browser tab may close without going through the game's Quit menu.
+        menuManager->method_208();
+#endif
     }
 
     processKeyPressed(var1);

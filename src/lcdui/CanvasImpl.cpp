@@ -5,6 +5,9 @@
 #include <SDL2/SDL_ttf.h>
 #include <stdexcept>
 #include <iostream>
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#endif
 
 #include "Canvas.h"
 
@@ -12,7 +15,17 @@ CanvasImpl::CanvasImpl(Canvas* canvas)
 {
     this->canvas = canvas;
 
-    if (SDL_Init(SDL_INIT_EVERYTHING) != 0) {
+#ifdef __EMSCRIPTEN__
+    // Yield explicitly after presenting, including during the loading screens.
+    SDL_SetHint(SDL_HINT_EMSCRIPTEN_ASYNCIFY, "0");
+#endif
+
+#ifdef __EMSCRIPTEN__
+    const auto initFlags = SDL_INIT_VIDEO | SDL_INIT_TIMER | SDL_INIT_EVENTS;
+#else
+    const auto initFlags = SDL_INIT_EVERYTHING;
+#endif
+    if (SDL_Init(initFlags) != 0) {
         throw std::runtime_error(SDL_GetError());
     }
 
@@ -58,6 +71,9 @@ CanvasImpl::~CanvasImpl()
 void CanvasImpl::repaint()
 {
     SDL_RenderPresent(renderer);
+#ifdef __EMSCRIPTEN__
+    emscripten_sleep(0);
+#endif
 }
 
 int CanvasImpl::getWidth()
@@ -91,6 +107,14 @@ void CanvasImpl::processEvents()
                 canvas->publicKeyPressed(keyCode);
             }
         } break;
+        case SDL_WINDOWEVENT:
+            if (e.window.event == SDL_WINDOWEVENT_FOCUS_LOST) {
+                for (auto key : {Canvas::Keys::UP, Canvas::Keys::DOWN,
+                                 Canvas::Keys::LEFT, Canvas::Keys::RIGHT, Canvas::Keys::FIRE}) {
+                    canvas->publicKeyReleased(key);
+                }
+            }
+            break;
         case SDL_KEYUP: {
             int sdlCode = e.key.keysym.sym;
             int keyCode = convertKeyCharToKeyCode(sdlCode);

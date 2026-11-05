@@ -1,6 +1,124 @@
 name: Build
-on: [pull_request, push]
+on:
+  pull_request:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
 jobs:
+  web:
+    name: Build website
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Test browser controls
+        run: node --test tests/web-input.test.cjs
+      - name: Install Emscripten
+        run: |
+          git clone --depth 1 https://github.com/emscripten-core/emsdk.git "$RUNNER_TEMP/emsdk"
+          "$RUNNER_TEMP/emsdk/emsdk" install 4.0.23
+          "$RUNNER_TEMP/emsdk/emsdk" activate 4.0.23
+      - name: Build for browsers
+        run: |
+          source "$RUNNER_TEMP/emsdk/emsdk_env.sh"
+          emcmake cmake -S . -B build-web -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-web --parallel 2
+      - name: Package website and corresponding source
+        env:
+          SOURCE_URL: ${{ github.server_url }}/${{ github.repository }}/tree/${{ github.sha }}
+        run: |
+          mkdir -p site
+          cp build-web/index.html build-web/index.js build-web/index.wasm build-web/input.js site/
+          cp LICENSE.md CREDITS.md README.md site/
+          git archive --format=tar.gz --prefix=gravity-defied-web/ HEAD > site/source.tar.gz
+          python3 - <<'PYTHON'
+          import html
+          import os
+          from pathlib import Path
+          page = Path("site/index.html")
+          content = page.read_text()
+          content = content.replace(
+              'href="https://github.com/LitoMore/gravity-defied-web">Source code</a>',
+              'href="' + html.escape(os.environ["SOURCE_URL"], quote=True)
+              + '">Source code</a> · <a href="source.tar.gz">Download source</a>',
+          )
+          page.write_text(content)
+          PYTHON
+      - name: Verify deployment files
+        run: |
+          python3 - <<'PYTHON'
+          from html.parser import HTMLParser
+          from pathlib import Path
+          from urllib.parse import unquote, urlsplit
+          import tarfile
+
+          site = Path("site")
+          required = ["index.html", "index.js", "index.wasm", "input.js",
+                      "LICENSE.md", "CREDITS.md", "README.md", "source.tar.gz"]
+          for name in required:
+              assert (site / name).is_file() and (site / name).stat().st_size, name
+          assert (site / "index.wasm").read_bytes()[:4] == b"\x00asm"
+
+          class Links(HTMLParser):
+              def handle_starttag(self, tag, attrs):
+                  for attr, value in attrs:
+                      if attr not in ("src", "href") or not value:
+                          continue
+                      url = urlsplit(value)
+                      if url.scheme or url.netloc or not url.path:
+                          continue
+                      assert not url.path.startswith("/"), f"Root-relative URL breaks project Pages: {value}"
+                      assert (site / unquote(url.path)).is_file(), f"Missing file: {value}"
+
+          Links().feed((site / "index.html").read_text())
+          with tarfile.open(site / "source.tar.gz") as source:
+              for name in ["CMakeLists.txt", "README.md", "web/input.js", "src/main.cpp"]:
+                  assert "gravity-defied-web/" + name in source.getnames(), name
+          print("Website files, relative links, WASM and corresponding source verified")
+          PYTHON
+      - name: Upload website
+        uses: actions/upload-artifact@v4
+        with:
+          name: GravityDefied-web
+          path: site/
+          if-no-files-found: error
+      - name: Upload Pages artifact
+        if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: site/
+  deploy:
+    name: Deploy to GitHub Pages
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch) && github.event_name != 'pull_request'
+    needs: web
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    concurrency:
+      group: github-pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+      - name: Deploy website
+        id: deployment
+        uses: actions/deploy-pages@v4
+      - name: Show website URL
+        env:
+          PAGE_URL: ${{ steps.deployment.outputs.page_url }}
+        run: echo "Play Gravity Defied at $PAGE_URL" >> "$GITHUB_STEP_SUMMARY"
   build:
     runs-on: ubuntu-24.04
     steps:
@@ -10,6 +128,11 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install build-essential libsdl2-dev libsdl2-image-dev libsdl2-ttf-dev g++-mingw-w64-i686
+
+      - name: Test record lifecycle
+        run: |
+          c++ -std=c++17 src/tests/test_record_lifecycle.cpp src/rms/RecordEnumerationImpl.cpp -o "$RUNNER_TEMP/test-record-lifecycle"
+          "$RUNNER_TEMP/test-record-lifecycle"
 
       - name: Build for Ubuntu
         run: |

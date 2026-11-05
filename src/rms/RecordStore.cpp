@@ -9,7 +9,7 @@
 
 #ifdef WIN32
 #include <libgen.h>
-#else
+#elif !defined(__EMSCRIPTEN__)
 #include <unistd.h>
 #include <pwd.h>
 #endif
@@ -124,7 +124,9 @@ void RecordStore::log(std::string s)
 
 void RecordStore::setRecordStoreDir([[maybe_unused]] const char* progName)
 {
-#ifdef WIN32
+#if defined(__EMSCRIPTEN__)
+    recordStoreDir = "/saves";
+#elif defined(WIN32)
     const char* base = dirname(strdup(progName));
     recordStoreDir = std::filesystem::path(base) / "recordStore";
 #else

@@ -12,11 +12,13 @@ if(WIN32)
     )
 endif()
 
-find_package(PkgConfig REQUIRED)
+if(NOT EMSCRIPTEN)
+    find_package(PkgConfig REQUIRED)
 
-pkg_search_module(SDL2 REQUIRED IMPORTED_TARGET sdl2)
-pkg_search_module(SDL2_TTF REQUIRED IMPORTED_TARGET SDL2_ttf)
-pkg_search_module(SDL2_IMAGE REQUIRED IMPORTED_TARGET SDL2_image)
+    pkg_search_module(SDL2 REQUIRED IMPORTED_TARGET sdl2)
+    pkg_search_module(SDL2_TTF REQUIRED IMPORTED_TARGET SDL2_ttf)
+    pkg_search_module(SDL2_IMAGE REQUIRED IMPORTED_TARGET SDL2_image)
+endif()
 
 # Create a sources variable with a link to all cpp files to compile
 set(SOURCES
@@ -91,7 +93,26 @@ target_link_directories(GravityDefied PRIVATE
 
 set_target_properties(GravityDefied PROPERTIES LINK_FLAGS_RELEASE -s)
 
-if(WIN32)
+if(EMSCRIPTEN)
+    set_target_properties(GravityDefied PROPERTIES OUTPUT_NAME index SUFFIX ".html")
+    target_compile_options(GravityDefied PRIVATE
+        -sUSE_SDL=2 -sUSE_SDL_TTF=2 -sUSE_SDL_IMAGE=2 -fexceptions)
+    target_link_options(GravityDefied PRIVATE
+        -sUSE_SDL=2 -sUSE_SDL_TTF=2 -sUSE_SDL_IMAGE=2
+        "-sSDL2_IMAGE_FORMATS=[\"png\"]"
+        -fexceptions -sASYNCIFY -sALLOW_MEMORY_GROWTH
+        -sASYNCIFY_STACK_SIZE=65536 -sSTACK_SIZE=1048576
+        -sENVIRONMENT=web -lidbfs.js
+        "--shell-file=${CMAKE_CURRENT_SOURCE_DIR}/web/shell.html"
+        "--pre-js=${CMAKE_CURRENT_SOURCE_DIR}/web/storage.js")
+    set_property(TARGET GravityDefied APPEND PROPERTY LINK_DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/web/shell.html"
+        "${CMAKE_CURRENT_SOURCE_DIR}/web/storage.js")
+    target_link_libraries(GravityDefied Assets::Assets)
+    configure_file(LICENSE.md LICENSE.md COPYONLY)
+    configure_file(CREDITS.md CREDITS.md COPYONLY)
+    configure_file(web/input.js input.js COPYONLY)
+elseif(WIN32)
     target_link_options(GravityDefied PRIVATE -static -mwindows)
     target_link_libraries(GravityDefied 
                          ${SDL2_STATIC_LIBRARIES} 
